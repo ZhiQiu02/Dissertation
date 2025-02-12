@@ -1,0 +1,260 @@
+import cv2
+import numpy as np
+import time
+import matplotlib.pyplot as plt
+blur_ksize = 3
+import os
+import tempfile
+
+
+def remove_small_noise(img, output_path=None, kernel_size=3):
+    """
+    使用腐蚀操作去除图像中的小噪点，并可选择保存结果到指定路径。
+
+    参数：
+    image_path (str): 输入图像路径（灰度图像，或已进行阈值处理的二值图像）
+    output_path (str, optional): 输出图像路径。若为None，则仅显示结果而不保存。默认为None。
+    kernel_size (int, optional): 腐蚀操作使用的结构元素大小（奇数）。默认为3。
+
+    返回：
+    np.ndarray: 去除小噪点后的图像（与输入图像同类型）
+    """
+
+    # 创建方形结构元素（可调整大小）
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
+
+    # 进行腐蚀操作
+    eroded_img = cv2.erode(img, kernel)
+    return eroded_img
+
+
+def roberts_edge_detection(img, output_path=None):
+    """
+    使用Robert算子进行边缘检测，并可选择保存结果到指定路径。
+
+    参数：
+    image_path (str): 输入图像路径（灰度图像）
+    output_path (str, optional): 输出图像路径。若为None，则仅显示结果而不保存。默认为None。
+
+    返回：
+    np.ndarray: Robert算子边缘检测结果（8位整型）
+    """
+
+    # Robert算子核
+    roberts_kernel_x = np.array([[1, 0], [0, -1]])
+    roberts_kernel_y = np.array([[0, 1], [-1, 0]])
+
+    # 计算x和y方向梯度
+    grad_x = cv2.filter2D(img, -1, roberts_kernel_x)
+    grad_y = cv2.filter2D(img, -1, roberts_kernel_y)
+
+    # 合并梯度
+    roberts_edges = np.sqrt(grad_x**2 + grad_y**2)
+    # 转换为8位整型
+    roberts_edges_uint8 = cv2.convertScaleAbs(roberts_edges.astype(np.uint8))
+
+    '''
+    # 显示或保存结果
+    if output_path is not None:
+        cv2.imwrite(output_path, roberts_edges_uint8)
+    else:
+        cv2.imshow("Robert Edge Detection", roberts_edges_uint8)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()'''
+
+    return roberts_edges_uint8
+
+
+def sobel_edge_detection(img, output_path=None):
+    """
+    使用Sobel算子进行边缘检测，并可选择保存结果到指定路径。
+
+    参数：
+    image_path (str): 输入图像路径（灰度图像）
+    output_path (str, optional): 输出图像路径。若为None，则仅显示结果而不保存。默认为None。
+
+    返回：
+    np.ndarray: Sobel算子边缘检测结果（8位整型）
+    """
+
+    # Sobel算子核
+    sobel_kernel_x = np.array([[1, 0, -1], [2, 0, -2], [1, 0, -1]], dtype=np.float32)
+    sobel_kernel_y = np.array([[1, 2, 1], [0, 0, 0], [-1, -2, -1]], dtype=np.float32)
+
+    # 计算x和y方向梯度
+    grad_x = cv2.filter2D(img, cv2.CV_64F, sobel_kernel_x)
+    grad_y = cv2.filter2D(img, cv2.CV_64F, sobel_kernel_y)
+
+    # 合并梯度
+    sobel_edges = np.sqrt(grad_x**2 + grad_y**2)
+
+    # 转换为8位整型
+    sobel_edges_uint8 = cv2.convertScaleAbs(sobel_edges.astype(np.uint8))
+    '''
+    # 显示或保存结果
+    if output_path is not None:
+        cv2.imwrite(output_path, sobel_edges_uint8)
+    else:
+        cv2.imshow("Sobel Edge Detection", sobel_edges_uint8)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()'''
+
+    return sobel_edges_uint8
+
+
+def canny_edge_detection(img, output_path=None):
+    """
+    使用Canny算子进行边缘检测，并可选择保存结果到指定路径。
+
+    参数：
+    image_path (str): 输入图像路径（灰度图像）
+    output_path (str, optional): 输出图像路径。若为None，则仅显示结果而不保存。默认为None。
+
+    返回：
+    np.ndarray: Canny算子边缘检测结果（8位整型）
+    """
+
+    # Canny算子参数（可按需调整）
+    low_threshold = 50
+    high_threshold = 150
+
+    # 进行Canny边缘检测
+    canny_edges = cv2.Canny(img, low_threshold, high_threshold)
+    '''
+    # 显示或保存结果
+    if output_path is not None:
+        cv2.imwrite(output_path, canny_edges)
+    else:
+        cv2.imshow("Canny Edge Detection", canny_edges)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()'''
+
+    return canny_edges
+
+
+def remove_illumination(image):
+    # 使用高斯滤波估计光照背景
+    blur = cv2.GaussianBlur(image, (21, 21), 0)
+    # 通过原图减去背景来去除光照不均
+    return cv2.subtract(image, blur)
+
+
+def threshold_segmentation(image):
+    # 应用阈值分割
+    _, thresh = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY_INV)
+    return thresh
+
+
+def preprocess_image(image_path):
+    # 读取图像
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+
+    # 检查图像是否读取成功
+    if image is None:
+        print("Error: Could not read image.")
+        return None
+
+    height, widths = image.shape
+    cropped_image = image[int(height / 2 - height / 8):int(height / 2 + height / 8),
+                    int(widths / 2 - widths / 8):int(widths / 2 + widths / 8)]
+
+
+
+    # cv2.imwrite('crop2.jpg', cropped_image)
+    # image_no_illumination = remove_illumination(image)
+    # cv2.imshow('thre',image_no_illumination)
+    # 阈值分割
+    img_blur1 = cv2.GaussianBlur(cropped_image, (blur_ksize, blur_ksize), 1)
+    thresholded = threshold_segmentation(img_blur1)
+    # cv2.imshow('thre', thresholded)
+    # cv2.imwrite('thre.jpg', thresholded)
+    # 边缘检测 - Canny边缘检测算法
+    eroded = remove_small_noise(thresholded)
+    # cv2.imshow('erode', eroded)
+    # cv2.imwrite('erode.jpg', eroded)
+    kernel = np.ones((3, 3), np.uint8)
+    dilated = cv2.dilate(eroded, kernel, iterations=1)
+    # cv2.imwrite('dilate.jpg', dilated)
+    # cv2.imshow('dilated', dilated)
+    # edges = cv2.Canny(dilated, 100, 200)
+    # cv2.imshow('edgfe', edges)
+    # cv2.imwrite('edges.jpg', edges)
+    # 形态学处理 - 膨胀操作，连接断裂的边缘
+    # 保存裁剪后的图像到临时文件
+
+    temp_file = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
+    cv2.imwrite(temp_file.name, dilated)
+
+    # 使用临时文件路径调用sobel_edge_detection()
+    edges1 = sobel_edge_detection(dilated)
+    cv2.imshow('sobel', edges1)
+    edges2 = roberts_edge_detection(dilated)
+    cv2.imshow('robert', edges2)
+    edges3 = canny_edge_detection(dilated)
+    cv2.imshow('canny', edges3)
+    # 删除临时文件（可选）
+    # os.remove(temp_file.name)
+
+    # 寻找轮廓
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    num_contours = 0
+    # 过滤并标记符合条件的轮廓（中心偏析缺陷）
+    for contour in contours:
+        # cv2.drawContours(cropped_image, [contour], -1, (0, 0, 255), 2)  # 绿色轮廓线
+        area = cv2.contourArea(contour)
+        if 35 <= area <= 300:  # 面积过滤条件，单位是像素的平方，需要根据实际情况调整
+            # 计算轮廓的近似形状
+            epsilon = 0.02 * cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, epsilon, True)
+            # 检查轮廓是否是圆形或椭圆形（通过检查顶点的数量）
+            if len(approx) >= 5:  # 圆形或椭圆形通常有较多顶点，这里设为5或以上
+                num_contours += 1
+                M = cv2.moments(contour)
+                cX = int(M["m10"] / M["m00"]) if M["m00"] != 0 else 0
+                cY = int(M["m01"] / M["m00"]) if M["m00"] != 0 else 0
+                cv2.circle(cropped_image, (cX, cY), 5, (0, 0, 255), -1)  # 红色圆点标记中心
+
+                # 绘制轮廓（可选，用于可视化）
+                cv2.drawContours(cropped_image, [contour], -1, (0, 0, 255), 2)  # 绿色轮廓线
+
+    return cropped_image, num_contours
+
+start = time.time()
+# 使用示例图像路径替换为您的图像路径
+image_path = '2011.4/11-04-05.992-4.jpg'
+processed_image, num_contours = preprocess_image(image_path)
+
+# 显示处理后的图像和标记的缺陷
+if processed_image is not None:
+    cv2.imshow('Processed Image with Defects Marked', processed_image)
+    # cv2.imwrite('Final2.jpg', processed_image)
+    cv2.waitKey(0)  # 等待按键按下后关闭窗口
+    # cv2.destroyAllWindows()  # 关闭所有OpenCV窗口
+    print(f"检测到的轮廓数量: {num_contours}")
+
+end = time.time()
+print(end-start)
+
+'''
+img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+
+# 2. 计算灰度直方图
+hist = cv2.calcHist([img], [0], None, [256], [0, 255])
+
+# 3. 绘制灰度直方图
+
+
+plt.rcParams['font.family'] = 'SimSun'  # 或其他已安装的支持中文的字体名
+
+plt.figure(figsize=(10, 6))
+plt.hist(img.ravel(), bins=256, range=[0, 256], edgecolor='black')
+plt.xlabel('图像灰度级')
+plt.ylabel('像素个数')
+
+# 使用 tick_params() 方法旋转y轴标签
+plt.tick_params(axis='y', labelrotation=90)
+
+plt.xticks(range(0, 257, 25))
+plt.grid(axis='y', alpha=0.5)
+plt.show()
+'''
